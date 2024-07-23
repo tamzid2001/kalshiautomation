@@ -1,0 +1,3 @@
+kalshi_python
+numpy
+pprint
