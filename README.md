@@ -87,4 +87,4 @@ For any questions or inquiries, please contact Tamzid Ullah at tamzid257@gmail.c
 
 🚀 Happy Trading!
 
-Paypal: paypal.me/tamzidullah
+Paypal: https://paypal.me/tamzidullah
