@@ -17,7 +17,7 @@ This repository contains a Python-based automation tool for analyzing and monito
 
 1. Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/kalshi-market-analysis.git
+    git clone https://github.com/tamzid2001/kalshi-market-analysis.git
     cd kalshi-market-analysis
     ```
 
@@ -86,6 +86,5 @@ For any questions or inquiries, please contact Tamzid Ullah at tamzid257@gmail.c
 ---
 
 🚀 Happy Trading!
-```
 
-Make sure to replace `yourusername` in the clone URL with your actual GitHub username, and update the paths to screenshots with the correct paths to your screenshot files. You can also adjust the email and any other personal information as needed.
+Paypal: paypal.me/tamzidullah
