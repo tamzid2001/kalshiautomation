@@ -46,7 +46,7 @@ This repository contains a Python-based automation tool for analyzing and monito
 
 Run the main script to start the market analysis:
 ```bash
-python kalshi_automation.py
+python kalshi.py
 ```
 
 The script will:
