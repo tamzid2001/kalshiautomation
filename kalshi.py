@@ -9,7 +9,6 @@ import os
 import csv
 import pandas as pd
 from scipy import stats
-# import telegram  # Commented out
 
 config = kalshi_python.Configuration()
 # Using production environment
@@ -17,14 +16,13 @@ config = kalshi_python.Configuration()
 
 # Create an API configuration passing your credentials.
 kalshi_api = kalshi_python.ApiInstance(
-    email='email',
-    password='password',
+    email='tamzid257@gmail.com',
+    password='@OceanLion999',
     configuration=config,
 )
 
-# Telegram Bot setup
-# bot = telegram.Bot(token='YOUR_TELEGRAM_BOT_TOKEN')
-# chat_id = 'YOUR_CHAT_ID'
+AUTO_TRADING_ENABLED = False  # Set this to True to enable auto-trading
+MAX_CONTRACTS = 10  # Maximum number of contracts to trade
 
 class MarketData:
     def __init__(self, event_ticker, market_ticker, event_title, market_subtitle, volume):
@@ -37,9 +35,8 @@ class MarketData:
         self.sma_values = deque(maxlen=5)
         self.last_update_time = None
         self.movement_type = None
-
-# def send_telegram_message(message):
-#     bot.send_message(chat_id=chat_id, text=message)
+        self.up_signal = None
+        self.down_signal = None
 
 def get_active_markets():
     active_markets = []
@@ -56,7 +53,7 @@ def get_active_markets():
     return active_markets
 
 def is_popular(market):
-    VOLUME_THRESHOLD = 100000  # Example: consider markets with volume > 1000 as popular
+    VOLUME_THRESHOLD = 1000  # Example: consider markets with volume > 1000 as popular
     is_pop = market.volume > VOLUME_THRESHOLD
     print(f"Market {market.market_subtitle}: Volume = {market.volume}, Popular = {is_pop}")
     return is_pop
@@ -83,9 +80,9 @@ def get_file_path(market_data):
     os.makedirs(folder_name, exist_ok=True)
     return os.path.join(folder_name, file_name)
 
-def update_csv(market_data, yes_price, no_price, fractal, total_avg, margin_of_error, std_dev, sma9_avg, sma9_3, pattern):
+def update_csv(market_data, timestamp, yes_ask, yes_bid, no_ask, no_bid, fractal, total_avg, margin_of_error, std_dev, sma9_avg, sma9_3, pattern, trade_sent):
     file_path = get_file_path(market_data)
-    headers = ['yes_price', 'no_price', 'fractal', 'total_avg', 'margin_of_error', 'std_dev', 'sma9_avg', 'sma9_3', 'pattern']
+    headers = ['timestamp', 'yes_ask', 'yes_bid', 'no_ask', 'no_bid', 'fractal', 'total_avg', 'margin_of_error', 'std_dev', 'sma9_avg', 'sma9_3', 'pattern', 'trade_sent']
     
     if not os.path.exists(file_path):
         with open(file_path, 'w', newline='') as f:
@@ -94,7 +91,7 @@ def update_csv(market_data, yes_price, no_price, fractal, total_avg, margin_of_e
     
     with open(file_path, 'a', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow([yes_price, no_price, fractal, total_avg, margin_of_error, std_dev, sma9_avg, sma9_3, pattern])
+        writer.writerow([timestamp, yes_ask, yes_bid, no_ask, no_bid, fractal, total_avg, margin_of_error, std_dev, sma9_avg, sma9_3, pattern, trade_sent])
 
 def calculate_fractal(prices):
     if len(prices) < 5:
@@ -105,20 +102,54 @@ def calculate_fractal(prices):
         return "low"
     return "none"
 
+def create_order(market_ticker, side, type, price, count):
+    try:
+        order_request = CreateOrderRequest(
+            ticker=market_ticker,
+            action="buy",
+            type=type,
+            count=count,
+            side=side,
+        )
+        if type == "limit":
+            if side == "yes":
+                order_request.yes_price = price
+            else:
+                order_request.no_price = price
+        
+        response = kalshi_api.create_order(order_request)
+        print(f"Order created: {response.order}")
+        return response.order
+    except Exception as e:
+        print(f"Error creating order: {e}")
+        return None
+
+def close_order(order_id):
+    try:
+        response = kalshi_api.cancel_order(order_id)
+        print(f"Order closed: {response}")
+        return response
+    except Exception as e:
+        print(f"Error closing order: {e}")
+        return None
+
 def monitor_market_price(market_data):
     print(f"Starting to monitor market: {market_data.event_title} - {market_data.market_subtitle}")
     crossing_points = []
+    last_trade_time = None
     
     while True:
         market_response = kalshi_api.get_market(market_data.market_ticker)
-        current_yes_price = market_response.market.yes_ask
-        current_no_price = market_response.market.no_ask
-        current_time = market_response.market.close_time
+        current_yes_ask = market_response.market.yes_ask
+        current_yes_bid = market_response.market.yes_bid
+        current_no_ask = market_response.market.no_ask
+        current_no_bid = market_response.market.no_bid
+        current_time = market_response.market.last_price_update_time
 
         if current_time != market_data.last_update_time:
-            market_data.prices.append(current_yes_price)
+            market_data.prices.append(current_yes_ask)
             market_data.last_update_time = current_time
-            print(f"New price for {market_data.event_title} - {market_data.market_subtitle}: {current_yes_price} at {current_time}")
+            print(f"New price for {market_data.event_title} - {market_data.market_subtitle}: {current_yes_ask} at {current_time}")
 
             if len(market_data.prices) == 9:
                 sma9 = calculate_sma9(market_data.prices)
@@ -129,15 +160,19 @@ def monitor_market_price(market_data):
                 if new_movement_type and new_movement_type != market_data.movement_type:
                     market_data.movement_type = new_movement_type
                     print(f"New pattern detected for {market_data.event_title} - {market_data.market_subtitle}: {market_data.movement_type} movement")
-                    # send_telegram_message(f"New pattern detected for {market_data.event_title} - {market_data.market_subtitle}: {market_data.movement_type} movement")
                     print("Actionable Decision Point: Consider opening a position based on the new pattern.")
 
                 if market_data.movement_type:
                     sma9_3 = list(market_data.sma_values)[2] if len(market_data.sma_values) >= 3 else None
                     if sma9_3:
-                        if (market_data.movement_type == "up" and current_yes_price > sma9_3) or \
-                           (market_data.movement_type == "down" and current_yes_price < sma9_3):
-                            crossing_points.append(current_yes_price)
+                        if market_data.movement_type == "up":
+                            market_data.up_signal = sma9_3
+                        elif market_data.movement_type == "down":
+                            market_data.down_signal = sma9_3
+
+                        if (market_data.movement_type == "up" and current_yes_ask > sma9_3) or \
+                           (market_data.movement_type == "down" and current_yes_ask < sma9_3):
+                            crossing_points.append(current_yes_ask)
                             if len(crossing_points) >= 2:
                                 avg = np.mean(crossing_points)
                                 std = np.std(crossing_points)
@@ -145,11 +180,10 @@ def monitor_market_price(market_data):
                                 lower_ci = avg - margin_of_error
                                 upper_ci = avg + margin_of_error
                                 
-                                if lower_ci <= current_yes_price <= upper_ci:
+                                if lower_ci <= current_yes_ask <= upper_ci:
                                     print(f"Alert: {market_data.event_title} - {market_data.market_subtitle} has crossed SMA9_3 ({sma9_3}) in the {market_data.movement_type} direction.")
-                                    print(f"Current price: {current_yes_price}")
+                                    print(f"Current price: {current_yes_ask}")
                                     print(f"95% Confidence Interval: [{lower_ci}, {upper_ci}]")
-                                    # send_telegram_message(f"Alert: {market_data.event_title} - {market_data.market_subtitle} has crossed SMA9_3 ({sma9_3}) in the {market_data.movement_type} direction. Current price: {current_yes_price}")
                                     print("Actionable Decision Point: Consider closing or adjusting your position.")
                         else:
                             crossing_points = []
@@ -161,10 +195,25 @@ def monitor_market_price(market_data):
             sma9_avg = np.mean(market_data.sma_values) if market_data.sma_values else None
             sma9_3 = list(market_data.sma_values)[2] if len(market_data.sma_values) >= 3 else None
 
-            update_csv(market_data, current_yes_price, current_no_price, fractal, total_avg, margin_of_error, std_dev, sma9_avg, sma9_3, market_data.movement_type)
+            trade_sent = False
+            if AUTO_TRADING_ENABLED and market_data.up_signal and market_data.down_signal:
+                if current_yes_ask < market_data.down_signal and market_data.up_signal > current_yes_ask:
+                    if (market_data.up_signal - market_data.down_signal) > (current_yes_ask - current_yes_bid) and current_time != last_trade_time:
+                        order = create_order(market_data.market_ticker, "yes", "limit", current_yes_ask, MAX_CONTRACTS)
+                        if order:
+                            trade_sent = True
+                            last_trade_time = current_time
+                elif current_yes_ask > market_data.up_signal:
+                    if current_time != last_trade_time:
+                        order = create_order(market_data.market_ticker, "no", "limit", current_no_ask, MAX_CONTRACTS)
+                        if order:
+                            trade_sent = True
+                            last_trade_time = current_time
+
+            update_csv(market_data, current_time, current_yes_ask, current_yes_bid, current_no_ask, current_no_bid, fractal, total_avg, margin_of_error, std_dev, sma9_avg, sma9_3, market_data.movement_type, trade_sent)
 
         else:
-            print(f"No new data for {market_data.event_title} - {market_data.market_subtitle}. Last price: {current_yes_price}")
+            print(f"No new data for {market_data.event_title} - {market_data.market_subtitle}. Last price: {current_yes_ask}")
 
         if market_response.market.status != "active":
             print(f"Market {market_data.event_title} - {market_data.market_subtitle} is no longer active. Removing CSV file.")
