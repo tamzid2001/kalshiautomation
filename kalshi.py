@@ -20,8 +20,8 @@ config.host = 'https://trading-api.kalshi.com/trade-api/v2'
 
 # Create an API configuration passing your credentials.
 kalshi_api = kalshi_python.ApiInstance(
-    email='tamzid257@gmail.com',
-    password='@OceanLion999',
+    email='email',
+    password='password',
     configuration=config,
 )
 
