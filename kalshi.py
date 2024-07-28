@@ -12,20 +12,25 @@ import csv
 import pandas as pd
 from scipy import stats
 import re
+import requests
 
 config = kalshi_python.Configuration()
 # Using production environment
-# config.host = 'https://demo-api.kalshi.co/trade-api/v2'
+config.host = 'https://trading-api.kalshi.com/trade-api/v2'
 
 # Create an API configuration passing your credentials.
 kalshi_api = kalshi_python.ApiInstance(
-    email='',
-    password='',
+    email='tamzid257@gmail.com',
+    password='@OceanLion999',
     configuration=config,
 )
 
 AUTO_TRADING_ENABLED = True  # Set this to True to enable auto-trading
-MAX_CONTRACTS = 1  # Maximum number of contracts to trade
+MAX_CONTRACTS = 10  # Maximum number of contracts to trade
+
+# Telegram Bot setup
+TOKEN = "7311259419:AAED2VD6PyO_xQGq3UBN3nwY6eg1gzAY_Wk"
+chat_id = '@kalshinotifications'
 
 class MarketData:
     def __init__(self, event_ticker, market_ticker, event_title, market_subtitle, volume):
@@ -37,9 +42,22 @@ class MarketData:
         self.prices = deque(maxlen=9)
         self.sma_values = deque(maxlen=5)
         self.last_update_time = None
+        self.last_price = None
         self.movement_type = None
         self.up_signal = None
         self.down_signal = None
+        self.signal_crossed = None
+        self.crossed_prices = []
+        self.trade_direction = None
+
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    params = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    response = requests.get(url, params=params)
+    return response.json()
 
 def get_active_markets():
     active_markets = []
@@ -59,7 +77,7 @@ def get_active_markets():
     return active_markets
 
 def is_popular(market):
-    VOLUME_THRESHOLD = 1000  # Example: consider markets with volume > 1000 as popular
+    VOLUME_THRESHOLD = 100000  # Example: consider markets with volume > 1000 as popular
     is_pop = market.volume > VOLUME_THRESHOLD
     print(f"Market {market.market_subtitle}: Volume = {market.volume}, Popular = {is_pop}")
     return is_pop
@@ -92,7 +110,7 @@ def get_file_path(market_data):
 
 def reset_csv(market_data):
     file_path = get_file_path(market_data)
-    headers = ['timestamp', 'yes_ask', 'yes_bid', 'no_ask', 'no_bid', 'total_avg', 'margin_of_error', 'std_dev', 'sma9_avg', 'sma9_3', 'pattern', 'trade_sent']
+    headers = ['timestamp', 'yes_ask', 'yes_bid', 'no_ask', 'no_bid', 'total_avg', 'margin_of_error', 'std_dev', 'sma9_avg', 'sma9_3', 'pattern', 'trade_sent', 'signal_crossed', 'trade_direction']
     
     with open(file_path, 'w', newline='') as f:
         writer = csv.writer(f)
@@ -103,7 +121,22 @@ def update_csv(market_data, timestamp, yes_ask, yes_bid, no_ask, no_bid, total_a
     
     with open(file_path, 'a', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow([timestamp, yes_ask, yes_bid, no_ask, no_bid, total_avg, margin_of_error, std_dev, sma9_avg, sma9_3, pattern, trade_sent])
+        writer.writerow([
+            timestamp,
+            yes_ask or 0,
+            yes_bid or 0,
+            no_ask or 0,
+            no_bid or 0,
+            total_avg or 0,
+            margin_of_error or 0,
+            std_dev or 0,
+            sma9_avg or 0,
+            sma9_3 or 0,
+            pattern or 'none',
+            trade_sent or False,
+            market_data.signal_crossed or 'none',
+            market_data.trade_direction or 'none'
+        ])
 
 def create_order(market_ticker, side, count):
     try:
@@ -131,6 +164,22 @@ def close_order(order_id):
         print(f"Error closing order: {e}")
         return None
 
+def check_confidence_interval(prices, current_price):
+    if len(prices) < 2:
+        return False
+    mean = np.mean(prices)
+    std_dev = np.std(prices)
+    degrees_of_freedom = len(prices) - 1
+    t_value_95 = stats.t.ppf(0.975, degrees_of_freedom)
+    t_value_99 = stats.t.ppf(0.995, degrees_of_freedom)
+    margin_of_error_95 = t_value_95 * (std_dev / np.sqrt(len(prices)))
+    margin_of_error_99 = t_value_99 * (std_dev / np.sqrt(len(prices)))
+    lower_bound_95 = mean - margin_of_error_95
+    upper_bound_95 = mean + margin_of_error_95
+    lower_bound_99 = mean - margin_of_error_99
+    upper_bound_99 = mean + margin_of_error_99
+    return lower_bound_95 <= current_price <= upper_bound_99
+
 def monitor_market_price(market_data, market_number, total_markets):
     print(f"Monitoring market {market_number}/{total_markets}: {market_data.event_title} - {market_data.market_subtitle}")
     reset_csv(market_data)  # Reset CSV file at the start of monitoring
@@ -144,9 +193,18 @@ def monitor_market_price(market_data, market_number, total_markets):
         current_time = datetime.datetime.now().isoformat()
 
         if current_time != market_data.last_update_time:
-            market_data.prices.append(current_yes_ask)
+            if market_data.last_price is not None and current_yes_bid != market_data.last_price:
+                message = f"Price Update: {market_data.event_title} - {market_data.market_subtitle}\n"
+                message += f"Volume: {market_data.volume}\n"
+                message += f"New Yes Bid: {current_yes_bid}\n"
+                message += f"Previous Yes Bid: {market_data.last_price}\n"
+                message += f"Reason: Price change detected"
+                send_telegram_message(message)
+
+            market_data.prices.append(current_yes_bid)
             market_data.last_update_time = current_time
-            print(f"New price for {market_data.event_title} - {market_data.market_subtitle}: {current_yes_ask} at {current_time}")
+            market_data.last_price = current_yes_bid
+            print(f"New price for {market_data.event_title} - {market_data.market_subtitle}: {current_yes_bid} at {current_time}")
 
             if len(market_data.prices) == 9:
                 sma9 = calculate_sma9(market_data.prices)
@@ -156,8 +214,12 @@ def monitor_market_price(market_data, market_number, total_markets):
                 new_movement_type = detect_pattern(list(market_data.sma_values))
                 if new_movement_type and new_movement_type != market_data.movement_type:
                     market_data.movement_type = new_movement_type
-                    print(f"New pattern detected for {market_data.event_title} - {market_data.market_subtitle}: {market_data.movement_type} movement")
-                    print("Actionable Decision Point: Consider opening a position based on the new pattern.")
+                    message = f"New Pattern: {market_data.event_title} - {market_data.market_subtitle}\n"
+                    message += f"Volume: {market_data.volume}\n"
+                    message += f"Yes Bid: {current_yes_bid}\n"
+                    message += f"Pattern: {market_data.movement_type} movement\n"
+                    message += f"Action: Consider opening a position based on the new pattern"
+                    send_telegram_message(message)
 
                 if market_data.movement_type:
                     sma9_3 = list(market_data.sma_values)[2] if len(market_data.sma_values) >= 3 else None
@@ -167,11 +229,40 @@ def monitor_market_price(market_data, market_number, total_markets):
                         elif market_data.movement_type == "down":
                             market_data.down_signal = sma9_3
 
-                        if (market_data.movement_type == "up" and current_yes_ask > sma9_3) or \
-                           (market_data.movement_type == "down" and current_yes_ask < sma9_3):
-                            print(f"Alert: {market_data.event_title} - {market_data.market_subtitle} has crossed SMA9_3 ({sma9_3}) in the {market_data.movement_type} direction.")
-                            print(f"Current price: {current_yes_ask}")
-                            print("Actionable Decision Point: Consider closing or adjusting your position.")
+                        if (market_data.movement_type == "up" and current_yes_bid > sma9_3 and market_data.signal_crossed != "up") or \
+                           (market_data.movement_type == "down" and current_yes_bid < sma9_3 and market_data.signal_crossed != "down"):
+                            market_data.signal_crossed = market_data.movement_type
+                            market_data.crossed_prices = [current_yes_bid]
+                            market_data.trade_direction = "yes" if market_data.movement_type == "up" else "no"
+                            message = f"Alert: {market_data.event_title} - {market_data.market_subtitle}\n"
+                            message += f"Volume: {market_data.volume}\n"
+                            message += f"Yes Bid: {current_yes_bid}\n"
+                            message += f"SMA9_3: {sma9_3}\n"
+                            message += f"Direction: {market_data.movement_type}\n"
+                            message += f"Action: Signal crossed, monitoring for trade opportunity"
+                            send_telegram_message(message)
+                        elif market_data.signal_crossed:
+                            if (market_data.signal_crossed == "up" and current_yes_bid < market_data.crossed_prices[-1]) or \
+                               (market_data.signal_crossed == "down" and current_yes_bid > market_data.crossed_prices[-1]):
+                                market_data.crossed_prices.append(current_yes_bid)
+                                if check_confidence_interval(market_data.crossed_prices, current_yes_bid) and AUTO_TRADING_ENABLED:
+                                    order = create_order(market_data.market_ticker, market_data.trade_direction, MAX_CONTRACTS)
+                                    if order:
+                                        message = f"Trade Executed: {market_data.event_title} - {market_data.market_subtitle}\n"
+                                        message += f"Direction: {'Buy' if market_data.trade_direction == 'yes' else 'Sell'} {market_data.trade_direction.capitalize()}\n"
+                                        message += f"Price: {current_yes_bid}\n"
+                                        message += f"Contracts: {MAX_CONTRACTS}"
+                                        send_telegram_message(message)
+                            elif ((market_data.signal_crossed == "up" and current_yes_bid < sma9_3) or 
+                                  (market_data.signal_crossed == "down" and current_yes_bid > sma9_3)):
+                                market_data.signal_crossed = None
+                                market_data.crossed_prices = []
+                                market_data.trade_direction = None
+                                message = f"Signal Reset: {market_data.event_title} - {market_data.market_subtitle}\n"
+                                message += f"Yes Bid: {current_yes_bid}\n"
+                                message += f"SMA9_3: {sma9_3}\n"
+                                message += f"Reason: Price returned to SMA9_3"
+                                send_telegram_message(message)
 
             total_avg = np.mean(market_data.prices)
             std_dev = np.std(market_data.prices)
@@ -179,54 +270,34 @@ def monitor_market_price(market_data, market_number, total_markets):
             sma9_avg = np.mean(market_data.sma_values) if market_data.sma_values else None
             sma9_3 = list(market_data.sma_values)[2] if len(market_data.sma_values) >= 3 else None
 
-            trade_sent = False
-            if AUTO_TRADING_ENABLED and market_data.up_signal and market_data.down_signal:
-                if current_yes_ask < market_data.down_signal and market_data.up_signal > current_yes_ask:
-                    if (market_data.up_signal - market_data.down_signal) > (current_yes_ask - current_yes_bid):
-                        order = create_order(market_data.market_ticker, "yes", MAX_CONTRACTS)
-                        if order:
-                            trade_sent = True
-                elif current_yes_ask > market_data.up_signal:
-                    order = create_order(market_data.market_ticker, "no", MAX_CONTRACTS)
-                    if order:
-                        trade_sent = True
-
-            update_csv(market_data, current_time, current_yes_ask, current_yes_bid, current_no_ask, current_no_bid, total_avg, margin_of_error, std_dev, sma9_avg, sma9_3, market_data.movement_type, trade_sent)
+            update_csv(market_data, current_time, current_yes_ask, current_yes_bid, current_no_ask, current_no_bid, total_avg, margin_of_error, std_dev, sma9_avg, sma9_3, market_data.movement_type, bool(market_data.trade_direction))
 
         else:
-            print(f"No new data for {market_data.event_title} - {market_data.market_subtitle}. Last price: {current_yes_ask}")
-
-        if market_response.market.status != "active":
-            print(f"Market {market_data.event_title} - {market_data.market_subtitle} is no longer active. Removing CSV file.")
-            os.remove(get_file_path(market_data))
-            return False
+          print(f"No new data for {market_data.event_title} - {market_data.market_subtitle}")
 
     except ApiException as e:
-        print(f"Error monitoring market {market_data.event_title} - {market_data.market_subtitle}: {e}")
-        return False
-
-    return True
+        print(f"Error monitoring market {market_data.market_ticker}: {e}")
 
 def main():
-    print("Starting Kalshi Market Analysis")
+    print("Starting Kalshi market monitoring script...")
+    
     while True:
         try:
             active_markets = get_active_markets()
             popular_markets = [market for market in active_markets if is_popular(market)]
             
-            print(f"Total active markets: {len(active_markets)}")
-            print(f"Popular markets: {len(popular_markets)}")
+            print(f"Found {len(popular_markets)} popular markets to monitor.")
             
-            for index, market_data in enumerate(popular_markets[:], 1):
-                if not monitor_market_price(market_data, index, len(popular_markets)):
-                    popular_markets.remove(market_data)
+            for i, market in enumerate(popular_markets, 1):
+                monitor_market_price(market, i, len(popular_markets))
             
-            print("Finished monitoring all markets. Waiting for 60 seconds before next cycle.")
-            time.sleep(60)
+            print("Finished monitoring cycle. Waiting for 5 minutes before next cycle...")
+            time.sleep(300)  # Wait for 5 minutes before the next cycle
+        
         except Exception as e:
             print(f"An error occurred in the main loop: {e}")
-            print("Waiting for 60 seconds before retrying...")
-            time.sleep(60)
+            print("Waiting for 5 minutes before retrying...")
+            time.sleep(300)
 
 if __name__ == "__main__":
     main()
