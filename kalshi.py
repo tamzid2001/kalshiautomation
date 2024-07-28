@@ -29,8 +29,8 @@ AUTO_TRADING_ENABLED = True  # Set this to True to enable auto-trading
 MAX_CONTRACTS = 10  # Maximum number of contracts to trade
 
 # Telegram Bot setup
-TOKEN = "7311259419:AAED2VD6PyO_xQGq3UBN3nwY6eg1gzAY_Wk"
-chat_id = '@kalshinotifications'
+TOKEN = ""
+chat_id = '@'
 
 class MarketData:
     def __init__(self, event_ticker, market_ticker, event_title, market_subtitle, volume):
