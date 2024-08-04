@@ -255,20 +255,6 @@ def main():
             popular_markets = [market for market in ACTIVE_MARKETS if is_popular(market)]
             print(f"Found {len(popular_markets)} popular markets to monitor.")
             
-            # Reset or create CSV files only for popular markets
-            for market in popular_markets:
-                file_path = get_file_path(market)
-                if os.path.exists(file_path):
-                    print(f"Existing CSV file found for {market.event_title} - {market.market_subtitle}. Resetting...")
-                    reset_csv(market)
-                else:
-                    print(f"Creating new CSV file for {market.event_title} - {market.market_subtitle}")
-                    reset_csv(market)
-
-                print("\nMarket data:")
-                market.print_attributes()
-                print()  # Add a blank line for readability
-
             for i, market in enumerate(popular_markets, 1):
                 monitor_market_price(market, i, len(popular_markets))
             
