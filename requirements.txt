@@ -1,5 +1,4 @@
 kalshi_python
 numpy
-pprint
 scipy
 requests
