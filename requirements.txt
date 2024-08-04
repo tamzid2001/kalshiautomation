@@ -2,5 +2,4 @@ kalshi_python
 numpy
 pprint
 scipy
-pandas
 requests
