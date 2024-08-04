@@ -1,11 +1,9 @@
-import uuid
 import time
 import datetime
 import kalshi_python
 import numpy as np
 import os
 import csv
-import pandas as pd
 import re
 import requests
 from kalshi_python.rest import ApiException
@@ -17,7 +15,7 @@ config = kalshi_python.Configuration()
 config.host = 'https://trading-api.kalshi.com/trade-api/v2'
 kalshi_api = kalshi_python.ApiInstance(email='', password='', configuration=config)
 
-AUTO_TRADING_ENABLED, MAX_CONTRACTS, ACTIVE_MARKETS = True, 10, []
+AUTO_TRADING_ENABLED, MAX_CONTRACTS, ACTIVE_MARKETS, VOLUME = True, 10, [], 100000
 TOKEN, chat_id = "", '@kalshinotifications'
 
 class MarketData:
@@ -72,7 +70,7 @@ def get_active_markets():
         return []
 
 def is_popular(market):
-    return market.volume > 100000
+    return market.volume > VOLUME
 
 def calculate_sma9(prices):
     return np.mean(prices)
@@ -87,14 +85,13 @@ def detect_pattern(sma_values):
     return None
 
 def get_file_path(market_data):
+    KALSHI_MARKET_DATA_DIR = "KALSHI_MARKET_DATA"
+    os.makedirs(KALSHI_MARKET_DATA_DIR, exist_ok=True)
     folder_name = re.sub(r'[<>:"/\\|?*]', '_', market_data.event_ticker)[:255]
+    folder_path = os.path.join(KALSHI_MARKET_DATA_DIR, folder_name)
+    os.makedirs(folder_path, exist_ok=True)
     file_name = re.sub(r'[<>:"/\\|?*]', '_', f"{market_data.event_title}_{market_data.market_subtitle}.csv")[:255]
-    os.makedirs(folder_name, exist_ok=True)
-    return os.path.join(folder_name, file_name)
-
-def reset_csv(market_data):
-    with open(get_file_path(market_data), 'w', newline='') as f:
-        csv.writer(f).writerow(['timestamp', 'yes_ask', 'yes_bid', 'no_ask', 'no_bid', 'total_avg', 'margin_of_error', 'std_dev', 'sma9_avg', 'sma9_3', 'pattern', 'trade_sent', 'signal_crossed', 'trade_direction'])
+    return os.path.join(folder_path, file_name)
 
 def update_csv(market_data, timestamp, yes_ask, yes_bid, no_ask, no_bid, total_avg, margin_of_error_95, margin_of_error_9999, std_dev, sma9_avg, sma9_3, pattern, trade_sent):
     new_values = [timestamp, yes_ask, yes_bid, no_ask, no_bid, total_avg, margin_of_error_95 or 0, margin_of_error_9999 or 0, std_dev or 0, sma9_avg or 0, sma9_3 or 0, pattern or 'none', trade_sent, market_data.signal_crossed or 'none', market_data.trade_direction or 'none']
