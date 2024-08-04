@@ -8,7 +8,58 @@ This tutorial demonstrates how to set up an AWS EC2 instance, run Python scripts
 
 ### 1. Setting up an EC2 Instance
 
-(Add instructions for setting up an EC2 instance here)
+# AWS EC2 and Python Tutorial
+
+## Introduction
+
+This tutorial demonstrates how to set up an AWS EC2 instance, run Python scripts continuously using nohup, and manage processes effectively. Learn essential commands for a smooth development experience on EC2.
+
+## Tutorial Contents
+
+### 1. Setting up an EC2 Instance
+
+Follow these steps to set up your AWS EC2 instance:
+
+a. **Create an AWS Account**
+   - Go to [AWS Console](https://aws.amazon.com/)
+   - Click "Create an AWS Account" and follow the prompts
+
+b. **Launch an EC2 Instance**
+   - Log in to the AWS Management Console
+   - Navigate to EC2 under "Compute" services
+   - Click "Launch Instance"
+   - Choose an Amazon Machine Image (AMI) - e.g., Amazon Linux 2 or Ubuntu
+   - Select an instance type (t2.micro is eligible for free tier)
+   - Configure instance details (use default settings for basic setup)
+   - Add storage (default is usually sufficient for beginners)
+   - Add tags (optional)
+   - Configure security group:
+     - Allow SSH traffic (port 22) from your IP address
+     - Allow HTTP traffic (port 80) if you plan to host a web application
+   - Review and launch
+   - Create a new key pair, download it, and keep it secure
+
+c. **Connect to Your EC2 Instance**
+   - Wait for the instance to initialize (check the "Instance State")
+   - Select your instance and click "Connect"
+   - Follow the instructions to SSH into your instance:
+     ```
+     chmod 400 your-key-pair.pem
+     ssh -i "your-key-pair.pem" ec2-user@your-instance-public-dns
+     ```
+
+d. **Update and Install Python (if not pre-installed)**
+   ```bash
+   sudo yum update -y
+   sudo yum install python3 -y
+   ```
+
+e. **Verify Python Installation**
+   ```bash
+   python3 --version
+   ```
+
+Now your EC2 instance is set up and ready for the next steps in the tutorial.
 
 ### 2. Running Python Scripts Continuously
 
