@@ -1,5 +1,59 @@
-Here's a README.md file for your GitHub repository:
+# AWS EC2 and Python Tutorial
 
+## Introduction
+
+This tutorial demonstrates how to set up an AWS EC2 instance, run Python scripts continuously using nohup, and manage processes effectively. Learn essential commands for a smooth development experience on EC2.
+
+## Tutorial Contents
+
+### 1. Setting up an EC2 Instance
+
+(Add instructions for setting up an EC2 instance here)
+
+### 2. Running Python Scripts Continuously
+
+Use the following command to run your Python script in the background:
+
+```bash
+nohup python3 my_script.py &
+```
+
+### 3. Essential Commands
+
+Master these commands for effective EC2 and process management:
+
+- Get root access:
+  ```bash
+  sudo su
+  ```
+
+- List Python processes:
+  ```bash
+  ps aux | grep python3
+  ```
+
+- Terminate a specific process:
+  ```bash
+  kill 2322
+  ```
+  Replace `2322` with the actual process ID you want to terminate.
+
+- View your script's recent activity:
+  ```bash
+  tail -f nohup.out
+  ```
+
+## Tips for Process Management
+
+- Always use `nohup` when you want a script to continue running after you've logged out of the EC2 instance.
+- Regularly check running processes to ensure optimal resource utilization.
+- Use `kill` command judiciously to terminate processes that are no longer needed.
+
+## Conclusion
+
+By mastering these commands and techniques, you'll be able to efficiently manage Python scripts on your AWS EC2 instance, ensuring continuous operation and effective process control.
+
+Happy coding!
 ```markdown
 # Kalshi Market Analysis Automation
 
