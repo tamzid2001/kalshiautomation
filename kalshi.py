@@ -1,3 +1,53 @@
+"""
+Kalshi Market Monitoring Script
+
+This script monitors Kalshi prediction markets, analyzes price movements,
+and executes trades based on specific patterns and confidence intervals.
+
+Author: Tamzid Ullah
+Website: https://tamzidullah.com
+Email: tamzid257@gmail.com
+GitHub: https://github.com/tamzid2001
+
+Version: 1.0.0
+Last Updated: 2024-08-03
+
+License: MIT License
+
+Copyright (c) 2024 Tamzid Ullah
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Description:
+This script connects to the Kalshi API to monitor prediction markets.
+It calculates Simple Moving Averages (SMA), detects price patterns,
+and makes trading decisions based on confidence intervals. The script
+also logs market data and sends notifications via Telegram.
+
+Usage:
+Ensure all required libraries are installed and API credentials are set.
+Run the script to start monitoring Kalshi markets and execute trades
+based on the defined strategies.
+
+Note: This script involves financial trading. Use at your own risk and
+always understand the implications of automated trading systems.
+"""
 import time
 import datetime
 import kalshi_python
@@ -13,10 +63,10 @@ from scipy import stats
 
 config = kalshi_python.Configuration()
 config.host = 'https://trading-api.kalshi.com/trade-api/v2'
-kalshi_api = kalshi_python.ApiInstance(email='', password='', configuration=config)
+kalshi_api = kalshi_python.ApiInstance(email='@email', password='pswrd', configuration=config)
 
 AUTO_TRADING_ENABLED, MAX_CONTRACTS, ACTIVE_MARKETS, VOLUME = True, 10, [], 100000
-TOKEN, chat_id = "", '@kalshinotifications'
+TOKEN, chat_id = "telegram_token", '@kalshinotifications'
 
 class MarketData:
     def __init__(self, event_ticker, market_ticker, event_title, market_subtitle, volume):
@@ -78,10 +128,22 @@ def calculate_sma9(prices):
 def detect_pattern(sma_values):
     if len(sma_values) < 5:
         return None
-    if sma_values[1] < sma_values[0] < sma_values[4] and sma_values[1] < sma_values[2] < sma_values[3]:
-        return "up"
-    elif sma_values[1] > sma_values[0] > sma_values[4] and sma_values[1] > sma_values[2] > sma_values[3]:
+    
+    sma9_1 = sma_values[1]
+    sma9_2 = sma_values[2]
+    sma9_3 = sma_values[3]
+    sma9_4 = sma_values[4]
+    sma9_5 = sma_values[0]
+    
+    # Detect down pattern
+    if sma9_2 > sma9_1 and sma9_2 > sma9_3 and sma9_1 < sma9_3 and sma9_4 < sma9_3 and sma9_5 < sma9_1:
         return "down"
+    
+    # Detect up pattern (vice versa of down pattern)
+    if sma9_2 < sma9_1 and sma9_2 < sma9_3 and sma9_1 > sma9_3 and sma9_4 > sma9_3 and sma9_5 > sma9_1:
+        return "up"
+    
+    # If neither pattern is detected
     return None
 
 def get_file_path(market_data):
@@ -142,79 +204,92 @@ def monitor_market_price(market_data, market_number, total_markets):
             print(f"DEBUG: Price change detected: new yes_bid={current_yes_bid}, old yes_bid={market_data.last_yes_bid}")
             if market_data.last_price is not None:
                 send_telegram_message(f"Price Update: {market_data.event_title} - {market_data.market_subtitle}\nVolume: {market_data.volume}\nNew Yes Bid: {current_yes_bid}\nPrevious Yes Bid: {market_data.last_price}\nReason: Price change detected")
+            
             market_data.prices.append(current_yes_bid)
             market_data.last_price = current_yes_bid
 
             sma9_avg = sma9_3 = None
             pattern = None
+
             if len(market_data.prices) >= 9:
                 print("DEBUG: Calculating SMA9 and detecting patterns")
-                sma9 = calculate_sma9(market_data.prices)
+                # Calculate SMA9 using the 9 most recent prices
+                sma9 = calculate_sma9(list(market_data.prices)[-9:])
+                
+                # Maintain exactly 5 SMA9 values
+                if len(market_data.sma_values) == 5:
+                    market_data.sma_values.pop()  # Remove the oldest value
                 market_data.sma_values.appendleft(sma9)
+                
                 sma9_avg = np.mean(market_data.sma_values)
-                if len(market_data.sma_values) >= 3:
-                    sma9_3 = list(market_data.sma_values)[2]
-                new_movement_type = detect_pattern(list(market_data.sma_values))
-                print(f"DEBUG: New movement type detected: {new_movement_type}")
-                if new_movement_type and new_movement_type != market_data.movement_type:
-                    market_data.movement_type = new_movement_type
-                    pattern = new_movement_type
-                    send_telegram_message(f"New Pattern: {market_data.event_title} - {market_data.market_subtitle}\nVolume: {market_data.volume}\nYes Bid: {current_yes_bid}\nPattern: {market_data.movement_type} movement\nAction: Consider opening a position based on the new pattern")
 
-                if market_data.movement_type and sma9_3:
-                    market_data.up_signal = sma9_3 if market_data.movement_type == "up" else market_data.up_signal
-                    market_data.down_signal = sma9_3 if market_data.movement_type == "down" else market_data.down_signal
+                # Only detect pattern if we have exactly 5 SMA9 values
+                if len(market_data.sma_values) == 5:
+                    new_movement_type = detect_pattern(list(market_data.sma_values))
+                    print(f"DEBUG: New movement type detected: {new_movement_type}")
+                    
+                    if new_movement_type and new_movement_type != market_data.movement_type:
+                        market_data.movement_type = new_movement_type
+                        pattern = new_movement_type
+                        # Set sma9_3 only if a pattern is detected
+                        sma9_3 = list(market_data.sma_values)[2]
+                        send_telegram_message(f"New Pattern: {market_data.event_title} - {market_data.market_subtitle}\nVolume: {market_data.volume}\nYes Bid: {current_yes_bid}\nPattern: {market_data.movement_type} movement\nAction: Consider opening a position based on the new pattern")
+
+                    if market_data.movement_type and sma9_3:
+                        market_data.up_signal = sma9_3 if market_data.movement_type == "up" else market_data.up_signal
+                        market_data.down_signal = sma9_3 if market_data.movement_type == "down" else market_data.down_signal
 
                 print(f"DEBUG: Checking for signal cross: movement_type={market_data.movement_type}, current_yes_bid={current_yes_bid}, sma9_3={sma9_3}, signal_crossed={market_data.signal_crossed}")
-                if (market_data.movement_type == "up" and current_yes_bid > sma9_3 and market_data.signal_crossed != "up") or \
-                   (market_data.movement_type == "down" and current_yes_bid < sma9_3 and market_data.signal_crossed != "down"):
-                    market_data.signal_crossed = market_data.movement_type
-                    market_data.crossed_prices = [current_yes_bid]
-                    market_data.trade_direction = "yes" if market_data.movement_type == "up" else "no"
-                    print(f"DEBUG: Signal crossed: direction={market_data.signal_crossed}, trade_direction={market_data.trade_direction}")
-                    send_telegram_message(f"Alert: {market_data.event_title} - {market_data.market_subtitle}\nVolume: {market_data.volume}\nYes Bid: {current_yes_bid}\nSMA9_3: {sma9_3}\nDirection: {market_data.movement_type}\nAction: Signal crossed, monitoring for trade opportunity")
+                if sma9_3:
+                    if (market_data.movement_type == "up" and current_yes_bid > sma9_3 and market_data.signal_crossed != "up") or \
+                    (market_data.movement_type == "down" and current_yes_bid < sma9_3 and market_data.signal_crossed != "down"):
+                        market_data.signal_crossed = market_data.movement_type
+                        market_data.crossed_prices = [current_yes_bid]
+                        market_data.trade_direction = "yes" if market_data.movement_type == "up" else "no"
+                        print(f"DEBUG: Signal crossed: direction={market_data.signal_crossed}, trade_direction={market_data.trade_direction}")
+                        send_telegram_message(f"Alert: {market_data.event_title} - {market_data.market_subtitle}\nVolume: {market_data.volume}\nYes Bid: {current_yes_bid}\nSMA9_3: {sma9_3}\nDirection: {market_data.movement_type}\nAction: Signal crossed, monitoring for trade opportunity")
 
-                elif market_data.signal_crossed:
-                    print(f"DEBUG: Monitoring crossed signal: signal_crossed={market_data.signal_crossed}, current_yes_bid={current_yes_bid}, last_crossed_price={market_data.crossed_prices[-1]}")
-                    if (market_data.signal_crossed == "up" and current_yes_bid < market_data.crossed_prices[-1]) or \
-                       (market_data.signal_crossed == "down" and current_yes_bid > market_data.crossed_prices[-1]):
-                        market_data.crossed_prices.append(current_yes_bid)
-                        print(f"DEBUG: Price reversal detected. Checking confidence interval.")
-                        
-                        # Calculate confidence intervals only if we have enough data points
-                        if len(market_data.crossed_prices) > 1:
-                            prices_array = np.array(market_data.crossed_prices)
-                            n = len(prices_array)
-                            mean = np.mean(prices_array)
-                            std_dev = np.std(prices_array, ddof=1)  # Using n-1 for sample standard deviation
+                    elif market_data.signal_crossed:
+                        print(f"DEBUG: Monitoring crossed signal: signal_crossed={market_data.signal_crossed}, current_yes_bid={current_yes_bid}, last_crossed_price={market_data.crossed_prices[-1]}")
+                        if (market_data.signal_crossed == "up" and current_yes_bid < market_data.crossed_prices[-1]) or \
+                        (market_data.signal_crossed == "down" and current_yes_bid > market_data.crossed_prices[-1]):
+                            market_data.crossed_prices.append(current_yes_bid)
+                            print(f"DEBUG: Price reversal detected. Checking confidence interval.")
                             
-                            # Standard Error of the Mean (SEM)
-                            sem = std_dev / np.sqrt(n)
-                            
-                            # 95% Confidence Interval
-                            ci_95 = stats.t.interval(confidence=0.95, df=n-1, loc=mean, scale=sem)
-                            margin_of_error_95 = (ci_95[1] - ci_95[0]) / 2
-                            
-                            # 99.99% Confidence Interval
-                            ci_9999 = stats.t.interval(confidence=0.9999, df=n-1, loc=mean, scale=sem)
-                            margin_of_error_9999 = (ci_9999[1] - ci_9999[0]) / 2
-                            
-                            print(f"DEBUG: 95% Confidence Interval: {ci_95}")
-                            print(f"DEBUG: 99.99% Confidence Interval: {ci_9999}")
-                            print(f"DEBUG: 95% Margin of Error: {margin_of_error_95}")
-                            print(f"DEBUG: 99.99% Margin of Error: {margin_of_error_9999}")
+                            # Calculate confidence intervals only if we have enough data points
+                            if len(market_data.crossed_prices) > 1:
+                                prices_array = np.array(market_data.crossed_prices)
+                                n = len(prices_array)
+                                mean = np.mean(prices_array)
+                                std_dev = np.std(prices_array, ddof=1)  # Using n-1 for sample standard deviation
+                                
+                                # Standard Error of the Mean (SEM)
+                                sem = std_dev / np.sqrt(n)
+                                
+                                # 95% Confidence Interval
+                                ci_95 = stats.t.interval(0.95, df=n-1, loc=mean, scale=sem)
+                                margin_of_error_95 = (ci_95[1] - ci_95[0]) / 2
+                                
+                                # 99.99% Confidence Interval
+                                ci_9999 = stats.t.interval(0.9999, df=n-1, loc=mean, scale=sem)
+                                margin_of_error_9999 = (ci_9999[1] - ci_9999[0]) / 2
+                                
+                                print(f"DEBUG: 95% Confidence Interval: {ci_95}")
+                                print(f"DEBUG: 99.99% Confidence Interval: {ci_9999}")
+                                print(f"DEBUG: 95% Margin of Error: {margin_of_error_95}")
+                                print(f"DEBUG: 99.99% Margin of Error: {margin_of_error_9999}")
 
-                            if ci_95[0] <= current_yes_bid <= ci_95[1] and AUTO_TRADING_ENABLED:
-                                print("DEBUG: Price within 95% confidence interval. Creating order.")
-                                order = create_order(market_data.market_ticker, market_data.trade_direction, MAX_CONTRACTS)
-                                if order:
-                                    send_telegram_message(f"Trade Executed: {market_data.event_title} - {market_data.market_subtitle}\nDirection: {'Buy' if market_data.trade_direction == 'yes' else 'Sell'} {market_data.trade_direction.capitalize()}\nPrice: {current_yes_bid}\nContracts: {MAX_CONTRACTS}\n95% CI: {ci_95}\n99.99% CI: {ci_9999}")
-                        else:
-                            print("DEBUG: Not enough data points for confidence interval calculation.")
-                    elif ((market_data.signal_crossed == "up" and current_yes_bid < sma9_3) or (market_data.signal_crossed == "down" and current_yes_bid > sma9_3)):
-                        print("DEBUG: Signal reset condition met.")
-                        market_data.signal_crossed = market_data.crossed_prices = market_data.trade_direction = None
-                        send_telegram_message(f"Signal Reset: {market_data.event_title} - {market_data.market_subtitle}\nYes Bid: {current_yes_bid}\nSMA9_3: {sma9_3}\nReason: Price returned to SMA9_3")
+                                if ci_95[0] <= current_yes_bid <= ci_95[1] and AUTO_TRADING_ENABLED:
+                                    print("DEBUG: Price within 95% confidence interval. Creating order.")
+                                    order = create_order(market_data.market_ticker, market_data.trade_direction, MAX_CONTRACTS)
+                                    if order:
+                                        send_telegram_message(f"Trade Executed: {market_data.event_title} - {market_data.market_subtitle}\nDirection: {'Buy' if market_data.trade_direction == 'yes' else 'Sell'} {market_data.trade_direction.capitalize()}\nPrice: {current_yes_bid}\nContracts: {MAX_CONTRACTS}\n95% CI: {ci_95}\n99.99% CI: {ci_9999}")
+                            else:
+                                print("DEBUG: Not enough data points for confidence interval calculation.")
+                        elif ((market_data.signal_crossed == "up" and current_yes_bid < sma9_3) or (market_data.signal_crossed == "down" and current_yes_bid > sma9_3)):
+                            print("DEBUG: Signal reset condition met.")
+                            market_data.signal_crossed = market_data.crossed_prices = market_data.trade_direction = None
+                            send_telegram_message(f"Signal Reset: {market_data.event_title} - {market_data.market_subtitle}\nYes Bid: {current_yes_bid}\nSMA9_3: {sma9_3}\nReason: Price returned to SMA9_3")
 
             # Calculate overall statistics
             total_avg = np.mean(market_data.prices)
