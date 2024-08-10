@@ -206,7 +206,7 @@ def get_file_path(market_data):
     file_name = re.sub(r'[<>:"/\\|?*]', '_', f"{market_data.event_title}_{market_data.market_subtitle}.csv")[:255]
     return os.path.join(folder_path, file_name)
 
-def update_csv(market_data, timestamp, yes_ask, yes_bid, no_ask, no_bid, total_avg, margin_of_error_95, margin_of_error_9999, std_dev, sma9_avg, sma9_3, pattern, trade_sent):
+def update_csv(market_data, timestamp, yes_ask, yes_bid, no_ask, no_bid, sma9_avg, sma9_3, pattern, trade_sent):
     signal_crossed = 'up' if market_data.signal_data['up']['crossed'] else ('down' if market_data.signal_data['down']['crossed'] else 'none')
     new_values = [
         timestamp, yes_ask, yes_bid, no_ask, no_bid, total_avg, 
@@ -330,33 +330,8 @@ def monitor_market_price(market_data, market_number, total_markets):
                         
                         if signal_difference > current_spread:
                             market_data.trade_direction = 'yes' if crossed_direction == 'up' else 'no'
+                            order, order_uuid = create_order(market_data.market_ticker, market_data.trade_direction, MAX_CONTRACTS)
                             print(f"DEBUG: Trade opportunity detected. Direction: {market_data.trade_direction}")
-                            
-                            # Calculate confidence intervals using crossed_prices
-                            if len(market_data.crossed_prices) > 1:
-                                prices_array = np.array(market_data.crossed_prices)
-                                n = len(prices_array)
-                                mean = np.mean(prices_array)
-                                std_dev = np.std(prices_array, ddof=1)
-                                sem = std_dev / np.sqrt(n)
-                                ci_95 = stats.t.interval(0.95, df=n-1, loc=mean, scale=sem)
-                                ci_9999 = stats.t.interval(0.9999, df=n-1, loc=mean, scale=sem)
-                                
-                                current_price = current_yes_bid if market_data.trade_direction == 'yes' else current_no_bid
-                                
-                                if ci_95[0] <= current_price <= ci_9999[1]:
-                                    if AUTO_TRADING_ENABLED and not market_data.current_order:
-                                        # Create new order
-                                        order, order_uuid = create_order(market_data.market_ticker, market_data.trade_direction, MAX_CONTRACTS)
-                                        if order:
-                                            market_data.current_order = order
-                                            market_data.current_order_uuid = order_uuid
-                                            market_data.order_price = current_price
-                                            send_telegram_message(f"Trade Executed: {market_data.event_title} - {market_data.market_subtitle}\nDirection: {'Buy' if market_data.trade_direction == 'yes' else 'Sell'} {market_data.trade_direction.capitalize()}\nPrice: {current_price}\nContracts: {MAX_CONTRACTS}\nOrder UUID: {order_uuid}")
-                                else:
-                                    print(f"DEBUG: Current price {current_price} not within 95-99.99% confidence interval: {ci_95[0]} - {ci_9999[1]}")
-                            else:
-                                print("DEBUG: Not enough crossed prices to calculate confidence intervals")
 
                 # Check for exit condition
                 if market_data.current_order and market_data.order_price:
@@ -366,28 +341,11 @@ def monitor_market_price(market_data, market_number, total_markets):
                         print(f"DEBUG: Exit condition met. Cancelling order with UUID: {market_data.current_order_uuid}")
                         cancel_order(market_data)
                         reset_market_data(market_data)
-
-            # Calculate overall statistics
-            total_avg = np.mean(market_data.prices)
-            std_dev = np.std(market_data.prices, ddof=1) if len(market_data.prices) > 1 else 0
-            n = len(market_data.prices)
-            
-            margin_of_error_95 = margin_of_error_9999 = 0
-            if n > 1:
-                sem = std_dev / np.sqrt(n)
-                
-                ci_95 = stats.t.interval(0.95, df=n-1, loc=total_avg, scale=sem)
-                margin_of_error_95 = (ci_95[1] - ci_95[0]) / 2
-                
-                ci_9999 = stats.t.interval(0.9999, df=n-1, loc=total_avg, scale=sem)
-                margin_of_error_9999 = (ci_9999[1] - ci_9999[0]) / 2
             
             # Determine if a trade was sent in this cycle
             trade_sent = market_data.current_order is not None and market_data.current_order_uuid is not None
     
-            update_csv(market_data, current_time, current_yes_ask, current_yes_bid, current_no_ask, current_no_bid, 
-               total_avg, margin_of_error_95, margin_of_error_9999, std_dev, sma9_avg, sma9_3, pattern, 
-               trade_sent)
+            update_csv(market_data, current_time, current_yes_ask, current_yes_bid, current_no_ask, current_no_bid, sma9_avg, sma9_3, pattern, trade_sent)
         else:
             print(f"DEBUG: No change in yes_bid for {market_data.event_title} - {market_data.market_subtitle}")
     except ApiException as e:
